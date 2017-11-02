@@ -1,0 +1,15 @@
+# Vendor libs
+node_modules
+
+# Log files
+*.log
+.hubot_history
+
+# Code coverage
+.nyc_output/
+coverage/
+coverage.lcov
+
+# Lock files
+package-lock.json
+yarn.lock

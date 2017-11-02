@@ -1,0 +1,9 @@
+---
+game:advertise:
+  en: Type 'jo' to join.
+game:already-started:
+  en: A game has already been created in this channel. Type 'jo' to join.
+game:cannot-remove:
+  en: Only the game manager can remove players.
+game:ready:
+  en: Type 'start' when ready to play.
