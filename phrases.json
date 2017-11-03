@@ -1,0 +1,20 @@
+{
+  "advertise": {
+    "en": "Type 'jo' to join."
+  },
+  "already-started": {
+    "en": "A game has already been created. Type 'jo' to join."
+  },
+  "cannot-remove": {
+    "en": "Only the game manager can remove other players."
+  },
+  "cannot-stop": {
+    "en": "Only the game manager can stop the game."
+  },
+  "cannot-transfer": {
+    "en": "Only the game manager can management."
+  },
+  "ready": {
+    "en": "Type 'start' when ready to play."
+  }
+}

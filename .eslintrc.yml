@@ -6,6 +6,7 @@ parserOptions:
   ecmaVersion: 6
   sourceType: module
 plugins:
+  - json
   - unicorn
 rules:
   accessor-pairs: error
@@ -116,6 +117,7 @@ rules:
   max-len:
     - error
     - 100
+    - ignoreComments: true
   max-lines:
     - off
     - 400
@@ -233,7 +235,7 @@ rules:
   no-param-reassign: error
   no-path-concat: error
   no-plusplus: error
-  no-process-env: warn
+  no-process-env: off
   no-process-exit: error
   no-proto: error
   no-redeclare: error

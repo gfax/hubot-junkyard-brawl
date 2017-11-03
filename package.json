@@ -7,16 +7,29 @@
   "author": "Jay Thomas <jay@gfax.ch>",
   "license": "GPL-3.0",
   "scripts": {
-    "start": "hubot"
+    "start": "hubot",
+    "test": "eslint . --ext .json --ext .js"
   },
   "devDependencies": {
     "eslint": "^4.10.0",
+    "eslint-plugin-json": "^1.2.0",
     "eslint-plugin-unicorn": "^2.1.2",
     "hubot": "^2.19.0"
   },
   "dependencies": {
-    "js-yaml": "^3.10.0",
-    "junkyard-brawl": "https://github.com/gfax/junkyard-brawl.git",
-    "lodash.find": "^4.6.0"
-  }
+    "irc-colors": "^1.4.0",
+    "junkyard-brawl": "^0.1.0"
+  },
+  "keywords": [
+    "brawl",
+    "cards",
+    "card-game",
+    "game",
+    "hubot",
+    "hubot-script",
+    "hubot-scripts",
+    "junkyard",
+    "junkyard-brawl",
+    "tabletop"
+  ]
 }

@@ -2,89 +2,142 @@
 //   Play Junkyard Brawl on your favorite chat protocol
 //
 // Commands:
-//   hubot junkyard - start a game of Junkyard Brawl
-//   play 3 2 1 - play your 3rd, 2nd, and 1st card
-//   discard 3 2 1 - discard your 3rd, 2nd, and 1st card
-//   pass - pass (in response to being attacked)
-//   remove <player> - drop a player from the game (must be game manager to do so)
-//   transfer <player> - assign a new game manager
+//   hubot junkyard - start a game of Junkyard Brawl, play 3 2 1 - play your 3rd, 2nd, and 1st card, discard 3 2 1 - discard your 3rd, 2nd, and 1st card, pass - pass (in response to being attacked), remove <player> - drop a player from the game (must be game manager to do so), transfer <player> - assign a new game manager
 //
 // Author:
 //   gfax
 
 const JunkyardBrawl = require('junkyard-brawl')
-const find = require('lodash.find')
-const fs = require('fs')
-const path = require('path')
-const yaml = require('js-yaml')
+const ircColors = require('irc-colors')
+const Language = require('junkyard-brawl/src/language')
+const phrases = require('./phrases.json')
 
 // Get phrases document for translations
-const file = fs.readFileSync(path.join(__dirname, 'phrases.yml'), 'utf8')
-const phrases = yaml.safeLoad(file)
-const lang = 'en'
+const lang = process.env.HUBOT_JUNKYARD_BRAWL_LANG || 'en'
 
+// Regexes we may re-defined
+const createRegex = /\bjunkyard$/i
+const discardRegex = /^di(s(card)?)?\b.+/i
+const joinRegex = /^jo(in)?$/i
+const passRegex = /^pa(ss)?$/i
+const playRegex = /^pl(ay)?\b.+/i
+const removeRegex = /^(rm)|(rem(ove)?)\b.+/i
+const statusRegex = /^st((at)?us)?$/i
+const startRegex = /^start$/i
+const stopRegex = /^stop$/i
+const transferRegex = /^tr(ansfer)?\b.+/i
+
+// Game instances, scoped to each room
 const games = {}
 
 module.exports = (robot) => {
-  robot.hear(/!junkyard$/i, createGame)
-  robot.respond(/^junkyard$/i, createGame)
-  robot.hear(/^jo(in)?$/i, addPlayer)
-  robot.hear(/^remove/i, removePlayer)
-  robot.hear(/^start/i, startGame)
+  robot.respond(createRegex, createGame)
+  robot.hear(discardRegex, discard)
+  robot.hear(joinRegex, addPlayer)
+  robot.hear(passRegex, pass)
+  robot.hear(playRegex, play)
+  robot.hear(removeRegex, removePlayer)
+  robot.hear(statusRegex, status)
+  robot.hear(startRegex, startGame)
+  robot.hear(stopRegex, stopGame)
+  robot.hear(transferRegex, transfer)
+
+  // Override card formatting
+  if (robot.adapterName === 'irc') {
+    Language.printCards = printCardsIrc
+  }
 
   function createGame(response) {
-    console.log(response.message)
     const { message: { user, room } } = response
-    if (games[room]) {
-      response.send(getPhrase('game:already-started'))
+    const game = getGame(response)
+    if (game) {
+      response.send(getPhrase('already-started'))
       return
     }
 
-    const game = new JunkyardBrawl(
+    setGame(response, new JunkyardBrawl(
       user.id,
       user.name,
-      generateAnnounceCallback(room),
+      generateAnnounceCallback(room || user.id),
       generateWhisperCallback(),
       lang
-    )
-    games[room] = game
-    announce(room, 'game:advertise', true)
+    ))
+
+    setTimeout(() => {
+      announce(response, 'advertise')
+    }, 800)
   }
 
   function addPlayer(response) {
-    const { message: { user, room } } = response
-    const game = games[room]
+    const { message: { user } } = response
+    const game = getGame(response)
     if (game) {
       game.addPlayer(user.id, user.name)
       if (!game.started && game.players.length === 2) {
-        announce(room, 'game:ready')
+        announce(response, 'ready')
       }
     }
   }
 
-  function announce(room, key, roomOnly = false) {
-    const game = games[room]
+  function announce(response, key) {
+    const { message: { user, room } } = response
     const phrase = getPhrase(key)
-    robot.messageRoom(room, phrase)
-    if (roomOnly === false) {
-      game.players.forEach(player => robot.messageRoom(player.id, phrase))
+    if (room) {
+      robot.messageRoom(room, phrase)
+    } else {
+      robot.messageRoom(user.id, phrase)
     }
   }
 
+  function discard(response) {
+    const { message: { user } } = response
+    const game = getGame(response)
+    if (game) {
+      const [, ...text] = response.message.text.split(' ')
+      game.discard(user.id, text.join(' '), text[text.length - 1])
+    }
+  }
+
+  // Take the filthy user text and make sense of it
+  function formatRequest(text, game) {
+    const array = text.toLowerCase().split(' ')
+    let player = null
+    const cardRequest = array.filter((el) => {
+      const found = game.players.find((plyr) => {
+        return el === plyr.name.toLowerCase() || el === plyr.id.toLowerCase()
+      })
+      player = player || found
+      // Filter this element from the card request
+      return !found && !isNaN(parseInt(el))
+    }).join(' ')
+    return [cardRequest, player]
+  }
+
   function generateAnnounceCallback(room) {
-    return (code, message) => {
+    return (code, message, messageProps) => {
       const game = games[room]
       if (game) {
-        game.players.forEach(player => robot.messageRoom(player.id, message))
+        if (code === 'game:no-survivors' || code === 'game:winner') {
+          games[room] = null
+        }
+        if (code === 'game:stopped') {
+          games[room] = null
+        }
       }
       robot.messageRoom(room, message)
     }
   }
 
   function generateWhisperCallback() {
-    return (userId, code, message) => {
-      robot.messageRoom(userId, message)
+    return (playerId, code, message) => {
+      robot.messageRoom(playerId, message)
     }
+  }
+
+  // Find the game instance the player is trying to play (if any)
+  function getGame(response) {
+    const { message: { user, room } } = response
+    return games[room] || games[user.id]
   }
 
   function getPhrase(key) {
@@ -94,37 +147,123 @@ module.exports = (robot) => {
     return phrases[key][lang]
   }
 
-  function removePlayer(response) {
-    const { message: { user, room } } = response
-    const game = games[room]
+  function pass(response) {
+    const { message: { user } } = response
+    const game = getGame(response)
     if (game) {
-      if (game.manager.id !== user.id) {
-        whisper(user.id, 'game:cannot-remove')
-        return
-      }
-      const [, target] = response.message.text.split(' ')
-      // Remove thyself
-      if (target && target.toLowerCase() === 'me') {
+      game.pass(user.id)
+    }
+  }
+
+  function play(response) {
+    const { message: { user } } = response
+    const game = getGame(response)
+    if (game) {
+      const [cardRequest, target] = formatRequest(response.message.text, game)
+      game.play(user.id, cardRequest, target)
+    }
+  }
+
+  // indexed = false - Earthquake, Block, Grab...
+  // indexed = true - 1.) Earthquake 2.) Block 3.) Grab...
+  function printCardsIrc(cards, language, indexed = false) {
+    const colors = {
+      attack: ircColors.bold.yellow.bgblack,
+      counter: ircColors.bold.green.bgblack,
+      disaster: ircColors.bold.red.bgblack,
+      support: ircColors.bold.blue.bgblack,
+      unstoppable: ircColors.bold.olive.bgblack
+    }
+    // Ensure parameter is an array, even when one card is passed in
+    const cardsToPrint = Array.isArray(cards) ? cards : [cards]
+    if (!cardsToPrint.length) {
+      return Language.getPhrase('player:no-cards', language)()
+    }
+    if (indexed) {
+      return cardsToPrint.map((card, idx) => {
+        const cardName = Language.getPhrase(`card:${card.id}`, language)()
+        return `${idx + 1}) ${colors[card.type](cardName)}`
+      }).join(' ')
+    }
+    return cardsToPrint.map((card) => {
+      return colors[card.type](Language.getPhrase(`card:${card.id}`, language)())
+    }).join(', ')
+  }
+
+  function removePlayer(response) {
+    const { message: { user, text } } = response
+    const game = getGame(response)
+    if (game) {
+      const [, target] = formatRequest(text, game)
+      if (target) {
+        if (user.id !== game.manager.id && user.id !== target.id) {
+          whisper(user, 'cannot-remove')
+          return
+        }
+        game.removePlayer(target)
+      } else if (text.match(/\bme\b/i)) {
+        // Remove thyself
         game.removePlayer(user.id)
       }
-      // Look up the player by name since
-      // game.getPlayer() relies on the user id
-      const player = find(game.players, { name: target })
-      if (player) {
-        game.removePlayer(player)
-      }
+    }
+  }
+
+  // Store the game in the public channel as well as the user
+  // room so that the user can give input from a private chat.
+  function setGame(response, val) {
+    const { message: { user, room } } = response
+    if (room) {
+      games[room] = val
+      return
+    }
+    games[user.id] = val
+  }
+
+  function status(response) {
+    const { message: { user } } = response
+    const game = getGame(response)
+    if (game) {
+      game.whisperStats(user.id)
     }
   }
 
   function startGame(response) {
-    const game = games[response.message.room]
-    if (game && !game.started) {
+    const game = getGame(response)
+    if (game) {
       game.start()
     }
   }
 
-  function whisper(userId, key) {
-    robot.messageRoom(userId, getPhrase(key))
+  function stopGame(response) {
+    const { message: { user } } = response
+    const game = getGame(response)
+    if (game) {
+      if (game.manager.id !== user.id) {
+        whisper(user, 'cannot-stop')
+        return
+      }
+      game.stop()
+      setGame(response, null)
+    }
+  }
+
+  function transfer(response) {
+    const { message: { user, text } } = response
+    const game = getGame(response)
+    if (game) {
+      if (game.manager.id !== user.id) {
+        whisper(user, 'cannot-transfer')
+        return
+      }
+      const [, target] = formatRequest(text.remove(transferRegex), game)
+      if (target) {
+        game.transferManagement(target)
+      }
+    }
+  }
+
+  function whisper(user, key) {
+    robot.messageRoom(user.id, getPhrase(key))
   }
 
 }
