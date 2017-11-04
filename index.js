@@ -45,6 +45,8 @@ module.exports = (robot) => {
   // Override card formatting
   if (robot.adapterName === 'irc') {
     Language.printCards = printCardsIrc
+  } else if (robot.adapterName === 'slack') {
+    Language.printCards = printCardsSlack
   }
 
   function createGame(response) {
@@ -165,7 +167,7 @@ module.exports = (robot) => {
   }
 
   // indexed = false - Earthquake, Block, Grab...
-  // indexed = true - 1.) Earthquake 2.) Block 3.) Grab...
+  // indexed = true - 1) Earthquake 2) Block 3) Grab...
   function printCardsIrc(cards, language, indexed = false) {
     const colors = {
       attack: ircColors.bold.yellow.bgblack,
@@ -187,6 +189,33 @@ module.exports = (robot) => {
     }
     return cardsToPrint.map((card) => {
       return colors[card.type](Language.getPhrase(`card:${card.id}`, language)())
+    }).join(', ')
+  }
+
+  // indexed = false - Earthquake, Block, Grab...
+  // indexed = true - (1. :thunder_cloud_and_rain: Earthquake) (2. :raised_hand: Block) (3. :warning: Grab...)
+  function printCardsSlack(cards, language, indexed = false) {
+    const emojis = {
+      attack: text => `:fist: ${text}`,
+      counter: text => `:raised_hand: ${text}`,
+      disaster: text => `:thunder_cloud_and_rain: ${text}`,
+      support: text => `:pill: ${text}`,
+      unstoppable: text => `:warning: ${text}`
+    }
+    // Ensure parameter is an array, even when one card is passed in
+    const cardsToPrint = Array.isArray(cards) ? cards : [cards]
+    if (!cardsToPrint.length) {
+      return Language.getPhrase('player:no-cards', language)()
+    }
+    if (indexed) {
+      return cardsToPrint.map((card, idx) => {
+        const cardName = `*${Language.getPhrase(`card:${card.id}`, language)()}*`
+        return `(${idx + 1}. ${emojis[card.type](cardName)})`
+      }).join(' ')
+    }
+    return cardsToPrint.map((card) => {
+      const cardName = Language.getPhrase(`card:${card.id}`, language)()
+      return emojis[card.type](`*${cardName}*`)
     }).join(', ')
   }
 
