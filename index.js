@@ -17,10 +17,10 @@ const lang = process.env.HUBOT_JUNKYARD_BRAWL_LANG || 'en'
 
 // Regexes we may re-defined
 const createRegex = /\bjunkyard$/i
-const discardRegex = /^di(s(card)?)?\b.+/i
+const discardRegex = /^d(i(s(card)?)?)?\b.+/i
 const joinRegex = /^jo(in)?$/i
 const passRegex = /^pa(ss)?$/i
-const playRegex = /^pl(ay)?\b.+/i
+const playRegex = /^p(l(ay)?)?\b.+/i
 const removeRegex = /^(rm)|(rem(ove)?)\b.+/i
 const statusRegex = /^st((at)?us)?$/i
 const startRegex = /^start$/i
@@ -59,7 +59,7 @@ module.exports = (robot) => {
 
     setGame(response, new JunkyardBrawl(
       user.id,
-      user.name,
+      formatName(user),
       generateAnnounceCallback(room || user.id),
       generateWhisperCallback(),
       lang
@@ -74,7 +74,7 @@ module.exports = (robot) => {
     const { message: { user } } = response
     const game = getGame(response)
     if (game) {
-      game.addPlayer(user.id, user.name)
+      game.addPlayer(user.id, formatName(user))
       if (!game.started && game.players.length === 2) {
         announce(response, 'ready')
       }
@@ -100,13 +100,26 @@ module.exports = (robot) => {
     }
   }
 
+  // Prettify the display name for different adapters
+  function formatName(user) {
+    const adapters = {
+      irc: name => ircColors.bold(user.name),
+      slack: name => `*${user.profile.display_name_normalized}*`
+    }
+    if (adapters[robot.adapterName]) {
+      return adapters[robot.adapterName](user)
+    }
+    return user.name
+  }
+
   // Take the filthy user text and make sense of it
   function formatRequest(text, game) {
     const array = text.toLowerCase().split(' ')
     let player = null
     const cardRequest = array.filter((el) => {
       const found = game.players.find((plyr) => {
-        return el === plyr.name.toLowerCase() || el === plyr.id.toLowerCase()
+        const name = plyr.name.toLowerCase()
+        return name.match(el.toLowerCase())
       })
       player = player || found
       // Filter this element from the card request
@@ -166,16 +179,10 @@ module.exports = (robot) => {
     }
   }
 
-  // indexed = false - Earthquake, Block, Grab...
-  // indexed = true - 1) Earthquake 2) Block 3) Grab...
+  // IRC supports colors so let's take advantage of that
+  // indexed = false - Guard Dog (-4), Sub (+2), Siphon (-1/+1)...
+  // indexed = true - 1.) Guard Dog (-4) 2.) Sub (+2) 3.) Siphon (-1/+1)...
   function printCardsIrc(cards, language, indexed = false) {
-    const colors = {
-      attack: ircColors.bold.yellow.bgblack,
-      counter: ircColors.bold.green.bgblack,
-      disaster: ircColors.bold.red.bgblack,
-      support: ircColors.bold.blue.bgblack,
-      unstoppable: ircColors.bold.olive.bgblack
-    }
     // Ensure parameter is an array, even when one card is passed in
     const cardsToPrint = Array.isArray(cards) ? cards : [cards]
     if (!cardsToPrint.length) {
@@ -183,16 +190,47 @@ module.exports = (robot) => {
     }
     if (indexed) {
       return cardsToPrint.map((card, idx) => {
-        const cardName = Language.getPhrase(`card:${card.id}`, language)()
-        return `${idx + 1}) ${colors[card.type](cardName)}`
+        return `${idx + 1}) ${getCardName(card)}`
       }).join(' ')
     }
     return cardsToPrint.map((card) => {
-      return colors[card.type](Language.getPhrase(`card:${card.id}`, language)())
+      return getCardName(card)
     }).join(', ')
+
+    function getCardName(card) {
+      const colors = {
+        attack: ircColors.bold.yellow.bgblack,
+        counter: ircColors.bold.green.bgblack,
+        disaster: ircColors.bold.red.bgblack,
+        support: ircColors.bold.blue.bgblack,
+        unstoppable: ircColors.bold.olive.bgblack
+      }
+      const name = Language.getPhrase(`card:${card.id}`, language)()
+      return colors[card.type](name) + getCardStats(card)
+    }
+
+    function getCardStats(card) {
+      const colors = {
+        damage: ircColors.bold.red.bgblack,
+        hp: ircColors.bold.blue.bgblack,
+        missTurns: ircColors.bold.purple.bgblack
+      }
+      const stats = []
+      if (card.damage) {
+        stats.push(colors.damage(`-${card.damage}`))
+      }
+      if (card.hp) {
+        stats.push(colors.hp(`+${card.hp}`))
+      }
+      if (card.missTurns) {
+        stats.push(colors.missTurns(`~${card.missTurns}`))
+      }
+      return stats.length ? ` (${stats.join('/')})` : ''
+    }
   }
 
-  // indexed = false - Earthquake, Block, Grab...
+  // Slack supports emojis so let's take advantage of that
+  // indexed = false - :thunder_cloud_and_rain: Earthquake, :raised_hand: Block, :warning: Grab...
   // indexed = true - (1. :thunder_cloud_and_rain: Earthquake) (2. :raised_hand: Block) (3. :warning: Grab...)
   function printCardsSlack(cards, language, indexed = false) {
     const emojis = {
@@ -209,14 +247,30 @@ module.exports = (robot) => {
     }
     if (indexed) {
       return cardsToPrint.map((card, idx) => {
-        const cardName = `*${Language.getPhrase(`card:${card.id}`, language)()}*`
-        return `(${idx + 1}. ${emojis[card.type](cardName)})`
-      }).join(' ')
+        return `${idx + 1}. ${emojis[card.type](getCardName(card))}`
+      }).join(' – ')
     }
     return cardsToPrint.map((card) => {
-      const cardName = Language.getPhrase(`card:${card.id}`, language)()
-      return emojis[card.type](`*${cardName}*`)
+      return emojis[card.type](getCardName(card))
     }).join(', ')
+
+    function getCardName(card) {
+      let name = Language.getPhrase(`card:${card.id}`, language)()
+      if (card.damage || card.hp || card.missTurns) {
+        const stats = []
+        if (card.damage) {
+          stats.push(`-${card.damage}`)
+        }
+        if (card.hp) {
+          stats.push(`+${card.hp}`)
+        }
+        if (card.missTurns) {
+          stats.push(`~${card.missTurns}`)
+        }
+        name += ` (${stats.join('/')})`
+      }
+      return `*${name}*`
+    }
   }
 
   function removePlayer(response) {
@@ -252,7 +306,7 @@ module.exports = (robot) => {
     const { message: { user } } = response
     const game = getGame(response)
     if (game) {
-      game.whisperStats(user.id)
+      game.whisperStatus(user.id)
     }
   }
 

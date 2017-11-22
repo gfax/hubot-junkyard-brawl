@@ -18,7 +18,7 @@
   },
   "dependencies": {
     "irc-colors": "^1.4.0",
-    "junkyard-brawl": "^0.1.0"
+    "junkyard-brawl": "~0.2.1"
   },
   "keywords": [
     "brawl",
