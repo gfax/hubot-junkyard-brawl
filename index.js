@@ -17,7 +17,8 @@ const lang = process.env.HUBOT_JUNKYARD_BRAWL_LANG || 'en'
 
 // Regexes we may re-defined
 const addBotRegex = /^add bot/i
-const createRegex = /\bjunkyard$/i
+const createRegex = /\b(junkyard|brawl)/i
+const createBangRegex = /^(\.|!)(junkyard|brawl)/i
 const discardRegex = /^d(i(s(card)?)?)?\b.+/i
 const joinRegex = /^jo(in)?$/i
 const passRegex = /^pa(ss)?$/i
@@ -37,6 +38,7 @@ const messageQueue = []
 
 module.exports = (robot) => {
   robot.respond(createRegex, createGame)
+  robot.hear(createBangRegex, createGame)
   robot.hear(addBotRegex, addBot)
   robot.hear(discardRegex, discard)
   robot.hear(joinRegex, addPlayer)

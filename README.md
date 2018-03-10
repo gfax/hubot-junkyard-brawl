@@ -18,7 +18,7 @@ npm install --save hubot-junkyard-brawl
 
 ## Usage
 
-- `hubot junkyard` - create a new game
+- `hubot junkyard`, `!junkyard`, `.junkyard`, `!brawl` - Create a new game in the current channel
 - `add bot <name>` - Add a bot to the game; If no name is given, the hubot name will be used.
 - `jo[in]` - Join an existing game
 - `start` - Start a game (once 2 or more players join)
