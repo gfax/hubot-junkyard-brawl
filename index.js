@@ -16,6 +16,7 @@ const phrases = require('./phrases.json')
 const lang = process.env.HUBOT_JUNKYARD_BRAWL_LANG || 'en'
 
 // Regexes we may re-defined
+const addBotRegex = /^add bot/i
 const createRegex = /\bjunkyard$/i
 const discardRegex = /^d(i(s(card)?)?)?\b.+/i
 const joinRegex = /^jo(in)?$/i
@@ -29,9 +30,14 @@ const transferRegex = /^tr(ansfer)?\b.+/i
 
 // Game instances, scoped to each room
 const games = {}
+// Buffer to prevent messages being sent too quickly.
+// Sending message too quickly confuses the slack adapter
+// as messages don't arrive to the client in order.
+const messageQueue = []
 
 module.exports = (robot) => {
   robot.respond(createRegex, createGame)
+  robot.hear(addBotRegex, addBot)
   robot.hear(discardRegex, discard)
   robot.hear(joinRegex, addPlayer)
   robot.hear(passRegex, pass)
@@ -48,6 +54,13 @@ module.exports = (robot) => {
   } else if (robot.adapterName === 'slack') {
     Language.printCards = printCardsSlack
   }
+
+  setInterval(() => {
+    const message = messageQueue.shift()
+    if (message) {
+      robot.messageRoom(message.room, message.text)
+    }
+  }, 150)
 
   function createGame(response) {
     const { message: { user, room } } = response
@@ -70,6 +83,20 @@ module.exports = (robot) => {
     }, 800)
   }
 
+  function addBot(response) {
+    const { message: { text } } = response
+    const game = getGame(response)
+    if (game) {
+      let robotName = text.replace(addBotRegex, '').trim() || robot.name
+      // Make sure the player name is unique
+      while (game.players.find(plyr => plyr.name === robotName)) {
+        robotName = robotName + Math.floor(Math.random(13) * 100)
+      }
+
+      game.addBot(formatBotName(robotName))
+    }
+  }
+
   function addPlayer(response) {
     const { message: { user } } = response
     const game = getGame(response)
@@ -83,11 +110,11 @@ module.exports = (robot) => {
 
   function announce(response, key) {
     const { message: { user, room } } = response
-    const phrase = getPhrase(key)
+    const text = getPhrase(key)
     if (room) {
-      robot.messageRoom(room, phrase)
+      messageQueue.push({ room, text })
     } else {
-      robot.messageRoom(user.id, phrase)
+      messageQueue.push({ room: user.id, text })
     }
   }
 
@@ -98,6 +125,17 @@ module.exports = (robot) => {
       const [, ...text] = response.message.text.split(' ')
       game.discard(user.id, text.join(' '), text[text.length - 1])
     }
+  }
+
+  function formatBotName(robotName) {
+    const adapters = {
+      irc: name => ircColors.bold(name),
+      slack: name => `*${name}*`
+    }
+    if (adapters[robot.adapterName]) {
+      return adapters[robot.adapterName](robotName)
+    }
+    return robotName
   }
 
   // Prettify the display name for different adapters
@@ -139,13 +177,15 @@ module.exports = (robot) => {
           games[room] = null
         }
       }
-      robot.messageRoom(room, message)
+      messageQueue.push({ room, text: message })
     }
   }
 
   function generateWhisperCallback() {
-    return (playerId, code, message) => {
-      robot.messageRoom(playerId, message)
+    return (playerId, code, message, messageProps) => {
+      if (!messageProps.player.robot) {
+        messageQueue.push({ room: playerId, text: message })
+      }
     }
   }
 
@@ -346,7 +386,7 @@ module.exports = (robot) => {
   }
 
   function whisper(user, key) {
-    robot.messageRoom(user.id, getPhrase(key))
+    messageQueue.push({ room: user.id, text: getPhrase(key) })
   }
 
 }
