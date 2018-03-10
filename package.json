@@ -1,6 +1,6 @@
 {
   "name": "hubot-junkyard-brawl",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Hubot plugin for playing Junkyard Brawl",
   "main": "index.js",
   "repository": "https://github.com/gfax/hubot-junkyard-brawl",
