@@ -144,7 +144,7 @@ module.exports = (robot) => {
   function formatName(user) {
     const adapters = {
       irc: name => ircColors.bold(user.name),
-      slack: name => `*${user.profile.display_name_normalized}*`
+      slack: name => `*${user.profile.display_name_normalized || user.name}*`
     }
     if (adapters[robot.adapterName]) {
       return adapters[robot.adapterName](user)
